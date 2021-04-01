@@ -88,6 +88,27 @@
 	  // clock_follow(200,cns5_,clockd5_);
 	  clock_dots(200,cns7_,clockd7_);
 	  // clock_digitalran(200,cns11_,clockd11_);
+
+
+    if ("geolocation" in navigator) {
+      const config = {
+        // 是否需要高精度位置 默认为false
+        enableHighAccuracy: true,
+        // 请求超时时间，默认为 infinity，单位ms
+        timeout: 1000,
+        // 位置信息过期时间，设置为0就无条件获取新的地理位置信息，默认为 0，单位 ms
+        maximumAge: 0
+      }
+      /* 地理位置信息可用 */
+      window.navigator.geolocation.getCurrentPosition((pos) => {
+        console.log(pos)
+      },
+      (err) => {
+        console.log(err)
+      }, config)
+    } else {
+      /* 地理位置信息不可用 */
+    }
 </script>
 <script>
   var txt = "Здравствыйте,У Чао, Я тебя люблю.！";
