@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>VIN 综合信息查询</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+  <style>
+    :root {
+      --theme: #3f8cff;
+      --bg: #f5f7fa;
+      --card: #ffffff;
+      --radius: 12px;
+      --shadow: 0 2px 8px rgba(0,0,0,.06);
+    }
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    }
+    body {
+      background: var(--bg);
+      padding: 16px;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .input-group {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+    }
+    input[type=text] {
+      flex: 1;
+      padding: 12px 14px;
+      font-size: 16px;
+      border: 1px solid #ddd;
+      border-radius: var(--radius);
+      outline: none;
+    }
+    button {
+      padding: 12px 20px;
+      font-size: 16px;
+      border: none;
+      border-radius: var(--radius);
+      background: var(--theme);
+      color: #fff;
+      cursor: pointer;
+    }
+    button:active {
+      opacity: .9;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+    .card h3 {
+      font-size: 17px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card h3 span {
+      font-size: 14px;
+      color: #888;
+      font-weight: normal;
+    }
+    .item {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 15px;
+      border-bottom: 1px solid #f1f1f1;
+    }
+    .item:last-child {
+      border: none;
+    }
+    .label {
+      color: #555;
+    }
+    .value {
+      font-weight: 500;
+      color: #000;
+    }
+    .loading {
+      text-align: center;
+      padding: 30px;
+      color: #999;
+    }
+    .error {
+      color: #e54847;
+      text-align: center;
+      padding: 20px;
+    }
+    footer {
+      margin-top: 30px;
+      text-align: center;
+      font-size: 13px;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <h1>📋 VIN 综合信息查询</h1>
+
+  <div class="input-group">
+    <input id="vin" type="text" maxlength="17" placeholder="请输入 17 位 VIN 码" />
+    <button onclick="doQuery()">查询</button>
+  </div>
+
+  <!-- 结果区 -->
+  <div id="result"></div>
+
+  <footer>数据来自探数 API，仅供演示</footer>
+
+  <script>
+    // ===== 1. 配置区：把你在探数后台看到的 key 填进来 =====
+    const API_KEY = 'c250ec41b1519e65f22a454e371288d4';
+    // 如需换别的服务商，改下面 4 个地址即可
+    const apiMap = {
+      base: 'https://api.tanshuapi.com/api/vin/v2/index',  // 车辆信息    100次免费，0.01元一次
+      care: 'https://api.tanshuapi.com/api/car_care/v1/index', // 维保记录    100次免费，0.35-0.55元一次
+      occ:  'https://api.tanshuapi.com/api/car_occ/v1/index', // 出险综合信息    50次免费，0.4元一次
+      risk: 'https://api.tanshuapi.com/api/car_risk/v1/index' // 车辆状态 风险  50次免费，0.25元一次
+    };
+
+    // ===== 2. 主查询 =====
+    async function doQuery() {
+      const vin = document.getElementById('vin').value.trim().toUpperCase();
+      if (!/^[A-HJ-NPR-Z\d]{17}$/.test(vin)) {
+        return showError('VIN 码必须为 17 位（不含 I/O/Q）');
+      }
+      const box = document.getElementById('result');
+      box.innerHTML = '<div class="loading">查询中，请稍候…</div>';
+
+      // 并发 4 个接口（免费版 QPS=2，实际够用）
+      const [base, care, occ, risk] = await Promise.allSettled([
+        fetchJson(apiMap.base, {key: API_KEY, vin}),
+        fetchJson(apiMap.care, {key: API_KEY, vin}),
+        fetchJson(apiMap.occ,  {key: API_KEY, vin}),
+        fetchJson(apiMap.risk, {key: API_KEY, vin})
+      ]);
+
+      box.innerHTML = ''; // 清空 loading
+      // 基础信息
+      if (base.status === 'fulfilled' && base.value.code === 1) {
+        box.appendChild(renderCard('基本信息', base.value.data, {
+          brand: '品牌', model: '车型', year: '年款', engine: '发动机', gearbox: '变速箱', displacement: '排量'
+        }));
+      } else {
+        box.appendChild(renderErrorCard('基本信息', base.reason || base.value.msg));
+      }
+
+      // 维保记录
+      if (care.status === 'fulfilled' && care.value.code === 1) {
+        const list = care.value.data.list || [];
+        box.appendChild(renderListCard('维保记录', list.slice(0, 3), item => ({
+          date: item.date, mileage: item.mileage + ' km', content: item.project
+        })));
+      } else {
+        box.appendChild(renderErrorCard('维保记录', care.reason || care.value.msg));
+      }
+
+      // 出险记录
+      if (occ.status === 'fulfilled' && occ.value.code === 1) {
+        const list = occ.value.data.list || [];
+        box.appendChild(renderListCard('出险记录', list.slice(0, 3), item => ({
+          date: item.date, money: '¥' + item.money, type: item.type
+        })));
+      } else {
+        box.appendChild(renderErrorCard('出险记录', occ.reason || occ.value.msg));
+      }
+
+      // 车辆风险
+      if (risk.status === 'fulfilled' && risk.value.code === 1) {
+        const d = risk.value.data;
+        box.appendChild(renderCard('车辆风险', {
+          stolen: d.isStolen ? '是' : '否',
+          mortgage: d.isMortgage ? '是' : '否',
+          water: d.isWater ? '是' : '否',
+          fire: d.isFire ? '是' : '否',
+          seizure: d.isSeizure ? '是' : '否'
+        }));
+      } else {
+        box.appendChild(renderErrorCard('车辆风险', risk.reason || risk.value.msg));
+      }
+    }
+
+    // ===== 3. 工具函数 =====
+    async function fetchJson(url, obj) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: new URLSearchParams(obj)
+      });
+      return res.json();
+    }
+    function renderCard(title, obj, map) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      let html = `<h3>${title}</h3>`;
+      for (const [k, v] of Object.entries(map)) {
+        html += `<div class="item"><span class="label">${v}</span><span class="value">${obj[k] || '--'}</span></div>`;
+      }
+      card.innerHTML = html;
+      return card;
+    }
+    function renderListCard(title, list, mapper) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      let html = `<h3>${title} <span>最近 ${list.length} 条</span></h3>`;
+      if (!list.length) html += '<div class="item">暂无记录</div>';
+      list.forEach(item => {
+        html += `<div class="item"><span class="label">${item.date}</span><span class="value">${item.mileage || item.money || item.type}</span></div>`;
+      });
+      card.innerHTML = html;
+      return card;
+    }
+    function renderErrorCard(title, msg) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<h3>${title}</h3><div class="error">${msg}</div>`;
+      return card;
+    }
+    function showError(msg) {
+      document.getElementById('result').innerHTML = `<div class="error">${msg}</div>`;
+    }
+  </script>
+</body>
+</html>
