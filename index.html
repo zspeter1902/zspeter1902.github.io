@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <title>VIN 综合信息查询</title>
+  <title>VIN 综合信息查询 · 新版</title>
   <meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
   <style>
     :root {
@@ -56,7 +56,7 @@
     }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      grid-template-columns: 1fr;
       gap: 14px;
     }
     .card {
@@ -116,76 +116,82 @@
   <h1>📋 VIN 综合信息查询</h1>
 
   <div class="input-group">
-    <input id="vin" type="text" maxlength="17" placeholder="请输入 17 位 VIN 码" />
+    <input id="vin" type="text" maxlength="17" placeholder="请输入 17 位 VIN 码">
     <button onclick="doQuery()">查询</button>
   </div>
 
   <!-- 结果区 -->
   <div id="result"></div>
 
-  <footer>数据来自探数 API，仅供演示</footer>
+  <footer>数据来自 showapi & jisuapi，仅供演示</footer>
 
   <script>
-    // ===== 1. 配置区：把你在探数后台看到的 key 填进来 =====
-    const API_KEY = 'c250ec41b1519e65f22a454e371288d4';
-    // 如需换别的服务商，改下面 4 个地址即可
-    const apiMap = {
-      base: 'https://api.tanshuapi.com/api/vin/v2/index',  // 车辆信息    100次免费，0.01元一次
-      care: 'https://api.tanshuapi.com/api/car_care/v1/index', // 维保记录    100次免费，0.35-0.55元一次
-      occ:  'https://api.tanshuapi.com/api/car_occ/v1/index', // 出险综合信息    50次免费，0.4元一次
-      risk: 'https://api.tanshuapi.com/api/car_risk/v1/index' // 车辆状态 风险  50次免费，0.25元一次
+    // ============ 配置 ============
+    const SHOWAPI_APPKEY = '8391C565da6f425cb9Da75DD81a4a5c6';
+    const JISU_APPKEY   = 'YOUR_JISU_APPKEY';
+
+    // showapi 统一入口
+    const SHOWAPI_BASE = 'https://route.showapi.com';
+    const API_MAP = {
+      vin:   SHOWAPI_BASE + '/1142-1',      // VIN 车型识别
+      care:  SHOWAPI_BASE + '/2665-1',      // 维保记录
+      accident: SHOWAPI_BASE + '/2666-1',  // 出险记录
+      risk:  SHOWAPI_BASE + '/2667-1',     // 车辆风险
+      illegal: 'https://api.jisuapi.com/illegal/query' // 违章 -> 极速数据
     };
 
-    // ===== 2. 主查询 =====
+    // ============ 主查询 ============
     async function doQuery() {
       const vin = document.getElementById('vin').value.trim().toUpperCase();
-      if (!/^[A-HJ-NPR-Z\d]{17}$/.test(vin)) {
-        return showError('VIN 码必须为 17 位（不含 I/O/Q）');
-      }
+      if (!/^[A-HJ-NPR-Z\d]{17}$/.test(vin)) return showError('VIN 码必须为 17 位（不含 I/O/Q）');
+
       const box = document.getElementById('result');
       box.innerHTML = '<div class="loading">查询中，请稍候…</div>';
 
-      // 并发 4 个接口（免费版 QPS=2，实际够用）
-      const [base, care, occ, risk] = await Promise.allSettled([
-        fetchJson(apiMap.base, {key: API_KEY, vin}),
-        fetchJson(apiMap.care, {key: API_KEY, vin}),
-        fetchJson(apiMap.occ,  {key: API_KEY, vin}),
-        fetchJson(apiMap.risk, {key: API_KEY, vin})
+      // 并发 5 个接口
+      const [vinInfo, careList, occList, riskInfo, illList] = await Promise.allSettled([
+        fetchShowapi(API_MAP.vin, {vin}),
+        fetchShowapi(API_MAP.care, {vin}),
+        fetchShowapi(API_MAP.accident, {vin}),
+        fetchShowapi(API_MAP.risk, {vin}),
+        // fetchIllegal(vin)
       ]);
 
-      box.innerHTML = ''; // 清空 loading
-      // 基础信息
-      if (base.status === 'fulfilled' && base.value.code === 1) {
-        box.appendChild(renderCard('基本信息', base.value.data, {
+      box.innerHTML = '';
+
+      // 1. 车型识别
+      if (vinInfo.status === 'fulfilled' && vinInfo.value.showapi_res_code === 0) {
+        const d = vinInfo.value.showapi_res_body;
+        box.appendChild(renderCard('基本信息', d, {
           brand: '品牌', model: '车型', year: '年款', engine: '发动机', gearbox: '变速箱', displacement: '排量'
         }));
       } else {
-        box.appendChild(renderErrorCard('基本信息', base.reason || base.value.msg));
+        box.appendChild(renderErrorCard('基本信息', vinInfo.reason || '未查询到数据'));
       }
 
-      // 维保记录
-      if (care.status === 'fulfilled' && care.value.code === 1) {
-        const list = care.value.data.list || [];
-        box.appendChild(renderListCard('维保记录', list.slice(0, 3), item => ({
-          date: item.date, mileage: item.mileage + ' km', content: item.project
+      // 2. 维保记录
+      if (careList.status === 'fulfilled' && careList.value.showapi_res_code === 0) {
+        const arr = careList.value.showapi_res_body.list || [];
+        box.appendChild(renderListCard('维保记录', arr.slice(0, 3), item => ({
+          date: item.date, mileage: (item.mileage || '--') + ' km', content: item.project
         })));
       } else {
-        box.appendChild(renderErrorCard('维保记录', care.reason || care.value.msg));
+        box.appendChild(renderErrorCard('维保记录', careList.reason || '暂无记录'));
       }
 
-      // 出险记录
-      if (occ.status === 'fulfilled' && occ.value.code === 1) {
-        const list = occ.value.data.list || [];
-        box.appendChild(renderListCard('出险记录', list.slice(0, 3), item => ({
-          date: item.date, money: '¥' + item.money, type: item.type
+      // 3. 出险记录
+      if (occList.status === 'fulfilled' && occList.value.showapi_res_code === 0) {
+        const arr = occList.value.showapi_res_body.list || [];
+        box.appendChild(renderListCard('出险记录', arr.slice(0, 3), item => ({
+          date: item.date, money: '¥' + (item.money || 0), type: item.type
         })));
       } else {
-        box.appendChild(renderErrorCard('出险记录', occ.reason || occ.value.msg));
+        box.appendChild(renderErrorCard('出险记录', occList.reason || '暂无记录'));
       }
 
-      // 车辆风险
-      if (risk.status === 'fulfilled' && risk.value.code === 1) {
-        const d = risk.value.data;
+      // 4. 车辆风险
+      if (riskInfo.status === 'fulfilled' && riskInfo.value.showapi_res_code === 0) {
+        const d = riskInfo.value.showapi_res_body;
         box.appendChild(renderCard('车辆风险', {
           stolen: d.isStolen ? '是' : '否',
           mortgage: d.isMortgage ? '是' : '否',
@@ -194,19 +200,42 @@
           seizure: d.isSeizure ? '是' : '否'
         }));
       } else {
-        box.appendChild(renderErrorCard('车辆风险', risk.reason || risk.value.msg));
+        box.appendChild(renderErrorCard('车辆风险', riskInfo.reason || '未查询到数据'));
+      }
+
+      // 5. 违章记录
+      if (illList.status === 'fulfilled') {
+        const arr = illList.value;
+        box.appendChild(renderListCard('违章记录', arr.slice(0, 3), item => ({
+          date: item.time, info: `${item.act}（${item.fen} 分 罚 ${item.money} 元）`
+        })));
+      } else {
+        box.appendChild(renderErrorCard('违章记录', illList.reason || '暂无记录'));
       }
     }
 
-    // ===== 3. 工具函数 =====
-    async function fetchJson(url, obj) {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-        body: new URLSearchParams(obj)
-      });
-      return res.json();
+    // ============ 网络封装 ============
+    async function fetchShowapi(path, body) {
+      const params = new URLSearchParams({...body, appKey: SHOWAPI_APPKEY});
+      const r = await fetch(path, {method: 'POST', body: params});
+      return r.json();
     }
+    async function fetchIllegal(vin) {
+      // 极速数据需要：车牌 + 车架号后 6 + 发动机号后 6 + 城市代码
+      // 这里演示用“粤B12345”“发动机 123456”“车架后 6”+“深圳”
+      // 实际页面应增加输入框让用户补充
+      const plate = '粤B12345';            // 示例
+      const engine6 = '123456';            // 示例
+      const vin6 = vin.slice(-6);
+      const cityCode = 'GD_shenzhen';      // 深圳
+      const url = `${API_MAP.illegal}?appkey=${JISU_APPKEY}&city=${cityCode}&hphm=${plate}&engineno=${engine6}&classno=${vin6}&hpzl=02`;
+      const r = await fetch(url);
+      const j = await r.json();
+      if (j.status !== 0) throw new Error(j.msg);
+      return j.result?.lists || [];
+    }
+
+    // ============ 渲染函数 ============
     function renderCard(title, obj, map) {
       const card = document.createElement('div');
       card.className = 'card';
@@ -223,7 +252,8 @@
       let html = `<h3>${title} <span>最近 ${list.length} 条</span></h3>`;
       if (!list.length) html += '<div class="item">暂无记录</div>';
       list.forEach(item => {
-        html += `<div class="item"><span class="label">${item.date}</span><span class="value">${item.mileage || item.money || item.type}</span></div>`;
+        const m = mapper(item);
+        html += `<div class="item"><span class="label">${m.date}</span><span class="value">${m.mileage || m.money || m.info}</span></div>`;
       });
       card.innerHTML = html;
       return card;
