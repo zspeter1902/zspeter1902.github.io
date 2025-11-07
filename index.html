@@ -163,7 +163,7 @@
       if (vinInfo.status === 'fulfilled' && vinInfo.value.showapi_res_code === 0) {
         const d = vinInfo.value.showapi_res_body;
         box.appendChild(renderCard('基本信息', d, {
-          brand: '品牌', model: '车型', year: '年款', engine: '发动机', gearbox: '变速箱', displacement: '排量'
+          brand_name: '品牌', model: '车型', made_year: '年款', sale_name: '发动机', transmission_type: '变速箱', output_volume: '排量'
         }));
       } else {
         box.appendChild(renderErrorCard('基本信息', vinInfo.reason || '未查询到数据'));
